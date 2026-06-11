@@ -3,17 +3,18 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits import create_sql_agent
+from langchain_groq import ChatGroq
 
 load_dotenv()
 
 def create_agent():
     db = SQLDatabase.from_uri("sqlite:///vendas.db")
     
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        temperature=0,
-        google_api_key=os.getenv("GOOGLE_API_KEY")
-    )
+    llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    temperature=0,
+    groq_api_key=os.getenv("GROQ_API_KEY")
+)
     
     agent = create_sql_agent(
         llm=llm,

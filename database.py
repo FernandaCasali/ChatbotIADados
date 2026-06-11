@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 
 def create_and_seed():
     conn = sqlite3.connect("vendas.db")
+
+    conn.execute("DROP TABLE IF EXISTS vendas")
     
     conn.execute("""
         CREATE TABLE IF NOT EXISTS vendas (
