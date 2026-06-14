@@ -197,6 +197,74 @@ footer{ visibility:hidden; }
 .ds-chip-q{ display:inline-flex; align-items:center; font-size:13px; color:var(--text);
   background:var(--panel-bg); border:1px solid var(--line-2); border-radius:22px; padding:10px 16px; }
 
+/* chips clicáveis (st.button) */
+.ds-chip-btn .stButton button{
+  border-radius:22px !important; padding:10px 18px !important; font-size:13px !important;
+  background:var(--panel-bg) !important; border:1px solid var(--line-2) !important;
+  color:var(--text) !important; text-align:center !important; justify-content:center !important;
+  width:auto !important;
+}
+.ds-chip-btn .stButton button:hover{ border-color:var(--gold) !important; color:var(--gold) !important; }
+
+/* acessibilidade / foco */
+a:focus-visible, button:focus-visible, [tabindex]:focus-visible,
+.stButton button:focus-visible, [data-testid="stChatInput"] textarea:focus-visible{
+  outline:2px solid var(--teal) !important; outline-offset:2px; }
+
+/* tabela: hover de linha p/ leitura */
+.ds-table tbody tr:hover{ background:rgba(240,237,229,0.04); }
+.ds-table tbody tr.lead:hover{ background:rgba(199,143,87,0.06); }
+
+/* scrollbar */
+::-webkit-scrollbar{ width:10px; height:10px; }
+::-webkit-scrollbar-thumb{ background:var(--panel-bg); border-radius:6px; border:1px solid var(--line); }
+::-webkit-scrollbar-track{ background:transparent; }
+
+/* ---- barra superior ---- */
+.ds-topbar{ display:flex; align-items:center; gap:10px; padding:0 0 18px;
+  font-size:13px; color:var(--muted); border-bottom:1px solid var(--line); margin-bottom:18px; }
+.ds-topbar .dot{ width:8px; height:8px; border-radius:50%; background:var(--teal); flex:0 0 8px; }
+.ds-topbar b{ color:var(--text); font-weight:600; }
+.ds-topbar .sep{ color:var(--faint); }
+.ds-topbar .spacer{ flex:1; }
+.ds-topbar .model{ font-family:var(--font-mono); font-size:12px; color:var(--muted);
+  border:1px solid var(--line); border-radius:20px; padding:5px 14px; }
+
+/* ---- sidebar: categorias (estilo lista plana, igual ao mock) ---- */
+[data-testid="stSidebar"] [data-testid="stExpander"]{
+  border:0 !important; background:transparent !important; border-radius:0 !important;
+  border-bottom:1px solid var(--line) !important; box-shadow:none !important; }
+[data-testid="stSidebar"] [data-testid="stExpander"] details,
+[data-testid="stSidebar"] [data-testid="stExpander"] > div{
+  border:0 !important; background:transparent !important; box-shadow:none !important; }
+[data-testid="stSidebar"] [data-testid="stExpander"] summary{
+  font-weight:700; font-size:14.5px; padding:.85rem .15rem; }
+[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover{ color:var(--cream); }
+[data-testid="stSidebar"] [data-testid="stExpander"] summary svg{ color:var(--teal); }
+[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"]{
+  padding:0 .15rem .5rem 2.0rem; }
+/* sub-itens das categorias: texto simples alinhado à esquerda, sem caixa */
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton button{
+  border:0 !important; background:transparent !important; color:var(--muted) !important;
+  padding:.32rem 0 !important; font-size:13px !important; border-radius:0 !important;
+  text-align:left !important; justify-content:flex-start !important;
+  box-shadow:none !important; min-height:auto !important; line-height:1.45 !important; }
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton button:hover{
+  color:var(--gold) !important; border:0 !important; }
+
+/* ---- toggles (Mostrar SQL / Sugerir gráfico) ---- */
+[data-testid="stSidebar"] [data-testid="stToggle"] label p{ font-size:13px; color:var(--muted); }
+
+/* responsivo */
+@media (max-width: 640px){
+  .ds-metrics{ flex-direction:column; gap:18px; }
+  .ds-metric{ border-left:0; padding-left:0; padding-bottom:12px; border-bottom:1px solid var(--line); }
+  .ds-metric:last-child{ border-bottom:0; }
+  .ds-bar-row{ grid-template-columns:90px 1fr 50px; gap:8px; }
+  .ds-cols{ gap:10px; }
+  h1{ font-size:1.9rem !important; }
+}
+
 /* erro */
 .ds-error{ display:flex; gap:14px; align-items:flex-start; border:1px solid rgba(181,71,69,.42);
   background:rgba(181,71,69,.09); border-radius:14px; padding:18px 20px; }
@@ -237,6 +305,15 @@ def sidebar_brand() -> str:
             f'color:var(--text)">DataChat AI</span></div>'
             f'<div style="color:var(--muted);font-size:13px;line-height:1.45">'
             f'Análise de dados de vendas por linguagem natural</div>')
+
+
+def topbar(db_name: str, n_rows: int, n_cols: int, model: str) -> str:
+    """Barra superior: status de conexão + modelo em uso."""
+    n_rows_fmt = f"{n_rows:,}".replace(",", ".")
+    return (f'<div class="ds-topbar"><span class="dot"></span>'
+            f'Conectado a <b>{_e(db_name)}</b>'
+            f'<span class="sep">·</span>{n_rows_fmt} registros · {n_cols} colunas'
+            f'<span class="spacer"></span><span class="model">{_e(model)}</span></div>')
 
 
 def eyebrow(t: str) -> str:

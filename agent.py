@@ -19,11 +19,14 @@ def create_agent():
         llm=llm,
         db=db,
         verbose=True,
+        max_iterations=8,
+        early_stopping_method="generate",
         agent_executor_kwargs={"handle_parsing_errors": True},
         prefix="""Você é um analista de dados especialista em SQL.
 Responda sempre em português brasileiro.
 Quando apresentar valores monetários, use o formato R$ X.XXX,XX.
 Seja direto e objetivo.
+Resolva a pergunta com o menor número possível de consultas SQL (idealmente uma única).
 Sempre que possível, apresente os dados em formato de tabela markdown."""
     )
     return agent

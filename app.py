@@ -28,8 +28,9 @@ def db_stats():
     total = pd.read_sql("SELECT COUNT(*) n FROM vendas", conn).iloc[0, 0]
     receita = pd.read_sql("SELECT SUM(total) r FROM vendas", conn).iloc[0, 0]
     prods = pd.read_sql("SELECT COUNT(DISTINCT produto) p FROM vendas", conn).iloc[0, 0]
+    cols = pd.read_sql("PRAGMA table_info(vendas)", conn).shape[0]
     conn.close()
-    return total, receita, prods
+    return total, receita, prods, cols
 
 
 def parse_md_table(txt: str):
@@ -52,7 +53,7 @@ def to_number(series: pd.Series):
     return pd.to_numeric(cleaned, errors="coerce")
 
 
-def render_answer(resposta: str, sql: str | None = None):
+def render_answer(resposta: str, sql: str | None = None, show_chart: bool = True):
     """Renderiza a resposta do agente com o visual DataChat (tabela + gráfico)."""
     df = parse_md_table(resposta)
     # texto antes da tabela
@@ -67,7 +68,7 @@ def render_answer(resposta: str, sql: str | None = None):
                                   numeric_cols=set(num_idx), lead_row=0))
         # gráfico: 1ª coluna texto + 1ª coluna numérica
         str_idx = [i for i in range(len(df.columns)) if i not in num_idx]
-        if num_idx and str_idx:
+        if show_chart and num_idx and str_idx:
             li, vi = str_idx[0], num_idx[0]
             rows = [(df.iloc[r, li], df.iloc[r, vi], to_number(df[df.columns[vi]]).iloc[r])
                     for r in range(len(df))]
@@ -90,12 +91,14 @@ with st.sidebar:
     theme.html(theme.sidebar_brand())
     st.divider()
 
-    total, receita, prods = db_stats()
+    total, receita, prods, n_cols = db_stats()
     theme.html(theme.eyebrow("Base de dados"))
     c1, c2 = st.columns(2)
     c1.metric("Registros", f"{total:,}".replace(",", "."))
     c2.metric("Produtos", prods)
-    st.metric("Receita total", f"R$ {receita:,.0f}".replace(",", "."))
+    theme.html(theme.metrics([
+        {"label": "Receita total", "value": f"R$ {receita:,.0f}".replace(",", ".")}
+    ]))
     st.divider()
 
     theme.html(theme.eyebrow("Perguntas sugeridas"))
@@ -119,6 +122,7 @@ with st.sidebar:
     st.divider()
     theme.html(theme.eyebrow("Configurações"))
     show_sql = st.toggle("Mostrar SQL gerado", value=True)
+    show_chart = st.toggle("Sugerir gráfico", value=True)
     if st.button("Limpar conversa", icon=":material/delete:", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
@@ -126,6 +130,9 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════════════════════
 #  ÁREA PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════
+_total, _receita, _prods, _n_cols = db_stats()
+theme.html(theme.topbar("vendas.db", _total, _n_cols, "llama-3.3-70b"))
+
 st.title("Converse com seus dados")
 st.caption("Pergunte em português sobre qualquer métrica de vendas — "
            "produtos, regiões, vendedores e períodos.")
@@ -136,15 +143,23 @@ if "messages" not in st.session_state:
 # estado vazio
 if not st.session_state.messages:
     theme.assistant(theme.welcome())
-    theme.html(theme.chips(["Top produtos de 2024", "Receita por região",
-                            "Melhor vendedor em março", "Ticket médio por categoria"]))
+    theme.html('<div class="ds-chips-label">COMECE POR AQUI</div>')
+    sugestoes = ["Top produtos de 2024", "Receita por região",
+                  "Melhor vendedor em março", "Ticket médio por categoria"]
+    cols = st.columns(len(sugestoes))
+    for col, s in zip(cols, sugestoes):
+        with col:
+            theme.html('<div class="ds-chip-btn">')
+            if st.button(s, key=f"chip_{s}", use_container_width=True):
+                st.session_state.pergunta_rapida = s
+            theme.html('</div>')
 
 # histórico
 for msg in st.session_state.messages:
     if msg["role"] == "user":
         theme.user(msg["content"])
     else:
-        render_answer(msg["content"], msg.get("sql") if show_sql else None)
+        render_answer(msg["content"], msg.get("sql") if show_sql else None, show_chart)
 
 # ── input ───────────────────────────────────────────────────────────
 pergunta = st.chat_input("Faça uma pergunta sobre os dados…")
@@ -172,6 +187,6 @@ if pergunta:
             "<code>vendedor</code>, <code>quantidade</code>, <code>preco_unitario</code>, "
             "<code>total</code>."))
     else:
-        render_answer(resposta, sql if show_sql else None)
+        render_answer(resposta, sql if show_sql else None, show_chart)
 
     st.session_state.messages.append({"role": "assistant", "content": resposta, "sql": sql})
