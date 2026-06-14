@@ -53,6 +53,26 @@ def to_number(series: pd.Series):
     return pd.to_numeric(cleaned, errors="coerce")
 
 
+def build_summary(df, num_idx, str_idx, lead):
+    """Faixa de métricas (líder + colunas numéricas) derivada da tabela."""
+    name_col = str_idx[0]
+    leader = str(df.iloc[lead, name_col])
+    items = [{"label": str(df.columns[name_col]), "value": leader, "is_name": True}]
+    for vi in num_idx[:2]:
+        nums = to_number(df[df.columns[vi]])
+        disp = str(df.iloc[lead, vi])
+        sub = None
+        if len(nums) > 1:
+            mean, total, lv = nums.mean(), nums.sum(), nums.iloc[lead]
+            if mean:
+                pct = (lv - mean) / mean * 100
+                sub = f"{pct:+.1f}% vs. média da equipe".replace(".", ",")
+            elif total:
+                sub = f"{lv / total * 100:.0f}% do total".replace(".", ",")
+        items.append({"label": str(df.columns[vi]), "value": disp, "sub": sub})
+    return items
+
+
 def render_answer(resposta: str, sql: str | None = None, show_chart: bool = True):
     """Renderiza a resposta do agente com o visual DataChat (tabela + gráfico)."""
     df = parse_md_table(resposta)
@@ -60,26 +80,34 @@ def render_answer(resposta: str, sql: str | None = None, show_chart: bool = True
     head_txt = resposta.split("|")[0].strip() if df is not None else resposta.strip()
     inner = theme.text(head_txt.replace("\n", "<br>")) if head_txt else ""
 
+    summary_html = ""
     blocks = []
     if df is not None:
         num_idx = [i for i, c in enumerate(df.columns) if to_number(df[c]).notna().all()]
+        str_idx = [i for i in range(len(df.columns)) if i not in num_idx]
+        # faixa de métricas (líder na categoria + colunas numéricas)
+        if num_idx and str_idx:
+            vi0 = num_idx[0]
+            nums0 = to_number(df[df.columns[vi0]])
+            lead = int(nums0.idxmax()) if nums0.notna().any() else 0
+            summary_html = theme.metrics(build_summary(df, num_idx, str_idx, lead))
         # tabela
         blocks.append(theme.table(df.columns.tolist(), df.values.tolist(),
-                                  numeric_cols=set(num_idx), lead_row=0))
+                                  numeric_cols=set(num_idx), lead_row=lead if num_idx and str_idx else 0))
         # gráfico: 1ª coluna texto + 1ª coluna numérica
-        str_idx = [i for i in range(len(df.columns)) if i not in num_idx]
         if show_chart and num_idx and str_idx:
             li, vi = str_idx[0], num_idx[0]
             rows = [(df.iloc[r, li], df.iloc[r, vi], to_number(df[df.columns[vi]]).iloc[r])
                     for r in range(len(df))]
             rows = [r for r in rows if pd.notna(r[2])]
             if rows:
-                lead = max(range(len(rows)), key=lambda k: rows[k][2])
-                blocks.append(theme.bar_chart(df.columns[vi], rows, lead_row=lead))
+                lead_c = max(range(len(rows)), key=lambda k: rows[k][2])
+                blocks.append(theme.bar_chart(df.columns[vi], rows, lead_row=lead_c))
     if sql:
         blocks.append(theme.sql_block(sql, open=False))
 
-    body = inner + (theme.card("Resultado", *blocks, pill=f"{len(df)} linhas")
+    card_head = "Ranking" if (df is not None and len(df) > 1) else "Resultado"
+    body = inner + summary_html + (theme.card(card_head, *blocks, pill=f"{len(df)} resultados")
                     if blocks else "")
     theme.assistant(body)
 
@@ -179,7 +207,13 @@ if pergunta:
     sql = sql_match.group(1).strip() if sql_match else None
 
     placeholder.empty()
-    if resposta.lower().startswith("erro"):
+    if resposta.startswith("ERRO_LIMITE"):
+        theme.assistant(theme.error_box(
+            "Limite da API atingido",
+            "O limite diário de tokens da API Groq foi atingido. "
+            "Aguarde alguns minutos para o limite renovar, ou configure outra "
+            "chave/modelo no arquivo <code>.env</code> / <code>agent.py</code>."))
+    elif resposta.lower().startswith("erro"):
         theme.assistant(theme.error_box(
             "Não consegui processar a pergunta",
             "Verifique se ela se refere a colunas existentes: "
