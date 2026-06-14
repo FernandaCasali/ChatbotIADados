@@ -65,10 +65,10 @@ def build_summary(df, num_idx, str_idx, lead):
         if len(nums) > 1:
             mean, total, lv = nums.mean(), nums.sum(), nums.iloc[lead]
             if mean:
-                pct = (lv - mean) / mean * 100
-                sub = f"{pct:+.1f}% vs. média da equipe".replace(".", ",")
+                pct = f"{(lv - mean) / mean * 100:+.1f}".replace(".", ",")
+                sub = f"{pct}% vs. média da equipe"
             elif total:
-                sub = f"{lv / total * 100:.0f}% do total".replace(".", ",")
+                sub = f"{lv / total * 100:.0f}% do total"
         items.append({"label": str(df.columns[vi]), "value": disp, "sub": sub})
     return items
 
@@ -106,8 +106,10 @@ def render_answer(resposta: str, sql: str | None = None, show_chart: bool = True
     if sql:
         blocks.append(theme.sql_block(sql, open=False))
 
-    card_head = "Ranking" if (df is not None and len(df) > 1) else "Resultado"
-    body = inner + summary_html + (theme.card(card_head, *blocks, pill=f"{len(df)} resultados")
+    n = len(df) if df is not None else 0
+    card_head = "Ranking" if n > 1 else "Resultado"
+    pill = f"{n} resultados" if df is not None else None
+    body = inner + summary_html + (theme.card(card_head, *blocks, pill=pill)
                     if blocks else "")
     theme.assistant(body)
 

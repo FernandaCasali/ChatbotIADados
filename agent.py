@@ -7,8 +7,13 @@ from langchain_groq import ChatGroq
 load_dotenv()
 
 def create_agent():
-    # sample_rows_in_table_info=0 economiza tokens (não envia linhas de exemplo)
-    db = SQLDatabase.from_uri("sqlite:///vendas.db", sample_rows_in_table_info=0)
+    # Conexão READ-ONLY: o agente executa SQL gerado pelo LLM, então bloqueamos
+    # qualquer escrita (DROP/DELETE/UPDATE) abrindo o banco em modo somente leitura.
+    # sample_rows_in_table_info=0 economiza tokens (não envia linhas de exemplo).
+    db = SQLDatabase.from_uri(
+        "sqlite:///file:vendas.db?mode=ro&uri=true",
+        sample_rows_in_table_info=0,
+    )
 
     llm = ChatGroq(
     model="llama-3.3-70b-versatile",
