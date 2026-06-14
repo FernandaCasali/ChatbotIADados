@@ -11,7 +11,7 @@ def create_agent():
     db = SQLDatabase.from_uri("sqlite:///vendas.db", sample_rows_in_table_info=0)
 
     llm = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model="llama-3.3-70b-versatile",
     temperature=0,
     groq_api_key=os.getenv("GROQ_API_KEY")
 )
