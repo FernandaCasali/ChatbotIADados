@@ -1,239 +1,226 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-from agent import create_agent, query
-import sqlite3
-import json
+"""
+DataChat AI — app Streamlit com o tema novo.
+Coloque junto de theme.py, agent.py, database.py e vendas.db.
+Rode:  streamlit run app.py
+"""
 import re
+import sqlite3
+import pandas as pd
+import streamlit as st
 
-# ── Configuração da página ──────────────────────────────────────────
-st.set_page_config(
-    page_title="DataChat AI",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+import theme
+from agent import create_agent, query
 
-# ── CSS customizado (visual profissional) ───────────────────────────
-st.markdown("""
-<style>
-    .stChatMessage { border-radius: 12px; margin-bottom: 8px; }
-    .metric-card {
-        background: #f8f9fa;
-        border-radius: 10px;
-        padding: 16px;
-        border: 1px solid #e9ecef;
-        text-align: center;
-    }
-    .sql-box {
-        background: #1e1e1e;
-        color: #d4d4d4;
-        padding: 12px 16px;
-        border-radius: 8px;
-        font-family: monospace;
-        font-size: 13px;
-    }
-    .tag {
-        display: inline-block;
-        background: #e8f4fd;
-        color: #1a6fa3;
-        padding: 2px 10px;
-        border-radius: 20px;
-        font-size: 12px;
-        margin: 2px;
-    }
-</style>
-""", unsafe_allow_html=True)
+# ── página ───────────────────────────────────────────────────────────
+st.set_page_config(page_title="DataChat AI", page_icon=":material/insights:",
+                   layout="wide", initial_sidebar_state="expanded")
+theme.inject()   # ← fontes + CSS (a única coisa que você precisa para o visual)
 
-# ── Agente (cache para não recriar a cada interação) ────────────────
+
 @st.cache_resource
 def get_agent():
     return create_agent()
 
-# ── Helpers ─────────────────────────────────────────────────────────
-def get_db_stats():
-    """Retorna métricas rápidas do banco para o sidebar."""
+
+@st.cache_data
+def db_stats():
     conn = sqlite3.connect("vendas.db")
-    total   = pd.read_sql("SELECT COUNT(*) as n FROM vendas", conn).iloc[0,0]
-    receita = pd.read_sql("SELECT SUM(total) as r FROM vendas", conn).iloc[0,0]
-    prods   = pd.read_sql("SELECT COUNT(DISTINCT produto) as p FROM vendas", conn).iloc[0,0]
+    total = pd.read_sql("SELECT COUNT(*) n FROM vendas", conn).iloc[0, 0]
+    receita = pd.read_sql("SELECT SUM(total) r FROM vendas", conn).iloc[0, 0]
+    prods = pd.read_sql("SELECT COUNT(DISTINCT produto) p FROM vendas", conn).iloc[0, 0]
+    cols = pd.read_sql("PRAGMA table_info(vendas)", conn).shape[0]
     conn.close()
-    return total, receita, prods
+    return total, receita, prods, cols
 
-def try_render_chart(resposta: str):
-    """
-    Tenta extrair uma tabela da resposta e plotar um gráfico.
-    Funciona quando o LLM retorna dados em formato de tabela markdown.
-    """
-    lines = [l.strip() for l in resposta.split("\n") if "|" in l and "---" not in l]
+
+def parse_md_table(txt: str):
+    """Extrai um DataFrame de uma tabela markdown na resposta do agente."""
+    lines = [l.strip() for l in txt.split("\n") if "|" in l and "---" not in l]
     if len(lines) < 2:
-        return
+        return None
+    header = [c.strip() for c in lines[0].split("|") if c.strip()]
+    rows = [[c.strip() for c in l.split("|") if c.strip()] for l in lines[1:]]
+    rows = [r for r in rows if len(r) == len(header)]
+    if not rows:
+        return None
+    return pd.DataFrame(rows, columns=header)
 
-    try:
-        header = [c.strip() for c in lines[0].split("|") if c.strip()]
-        rows   = [[c.strip() for c in l.split("|") if c.strip()] for l in lines[1:]]
-        df = pd.DataFrame(rows, columns=header)
 
-        # Tenta converter colunas numéricas
-        for col in df.columns:
-            df[col] = df[col].str.replace(r"[R$\s.]", "", regex=True).str.replace(",", ".")
-            try:
-                df[col] = pd.to_numeric(df[col])
-            except Exception:
-                pass
+def to_number(series: pd.Series):
+    cleaned = (series.astype(str)
+               .str.replace(r"[R$\s.]", "", regex=True)
+               .str.replace(",", ".", regex=False))
+    return pd.to_numeric(cleaned, errors="coerce")
 
-        num_cols = df.select_dtypes(include="number").columns.tolist()
-        str_cols = df.select_dtypes(exclude="number").columns.tolist()
 
-        if num_cols and str_cols:
-            st.divider()
-            chart_type = st.selectbox(
-                "Visualização automática",
-                ["Barra", "Pizza", "Linha"],
-                key=f"chart_{len(st.session_state.messages)}"
-            )
-            if chart_type == "Barra":
-                fig = px.bar(df, x=str_cols[0], y=num_cols[0],
-                             color_discrete_sequence=["#4C78A8"])
-            elif chart_type == "Pizza":
-                fig = px.pie(df, names=str_cols[0], values=num_cols[0])
-            else:
-                fig = px.line(df, x=str_cols[0], y=num_cols[0], markers=True)
+def build_summary(df, num_idx, str_idx, lead):
+    """Faixa de métricas (líder + colunas numéricas) derivada da tabela."""
+    name_col = str_idx[0]
+    leader = str(df.iloc[lead, name_col])
+    items = [{"label": str(df.columns[name_col]), "value": leader, "is_name": True}]
+    for vi in num_idx[:2]:
+        nums = to_number(df[df.columns[vi]])
+        disp = str(df.iloc[lead, vi])
+        sub = None
+        if len(nums) > 1:
+            mean, total, lv = nums.mean(), nums.sum(), nums.iloc[lead]
+            if mean:
+                pct = (lv - mean) / mean * 100
+                sub = f"{pct:+.1f}% vs. média da equipe".replace(".", ",")
+            elif total:
+                sub = f"{lv / total * 100:.0f}% do total".replace(".", ",")
+        items.append({"label": str(df.columns[vi]), "value": disp, "sub": sub})
+    return items
 
-            fig.update_layout(margin=dict(t=20, b=0), height=320)
-            st.plotly_chart(fig, use_container_width=True)
-    except Exception:
-        pass  # Se falhar, só não mostra o gráfico
+
+def render_answer(resposta: str, sql: str | None = None, show_chart: bool = True):
+    """Renderiza a resposta do agente com o visual DataChat (tabela + gráfico)."""
+    df = parse_md_table(resposta)
+    # texto antes da tabela
+    head_txt = resposta.split("|")[0].strip() if df is not None else resposta.strip()
+    inner = theme.text(head_txt.replace("\n", "<br>")) if head_txt else ""
+
+    summary_html = ""
+    blocks = []
+    if df is not None:
+        num_idx = [i for i, c in enumerate(df.columns) if to_number(df[c]).notna().all()]
+        str_idx = [i for i in range(len(df.columns)) if i not in num_idx]
+        # faixa de métricas (líder na categoria + colunas numéricas)
+        if num_idx and str_idx:
+            vi0 = num_idx[0]
+            nums0 = to_number(df[df.columns[vi0]])
+            lead = int(nums0.idxmax()) if nums0.notna().any() else 0
+            summary_html = theme.metrics(build_summary(df, num_idx, str_idx, lead))
+        # tabela
+        blocks.append(theme.table(df.columns.tolist(), df.values.tolist(),
+                                  numeric_cols=set(num_idx), lead_row=lead if num_idx and str_idx else 0))
+        # gráfico: 1ª coluna texto + 1ª coluna numérica
+        if show_chart and num_idx and str_idx:
+            li, vi = str_idx[0], num_idx[0]
+            rows = [(df.iloc[r, li], df.iloc[r, vi], to_number(df[df.columns[vi]]).iloc[r])
+                    for r in range(len(df))]
+            rows = [r for r in rows if pd.notna(r[2])]
+            if rows:
+                lead_c = max(range(len(rows)), key=lambda k: rows[k][2])
+                blocks.append(theme.bar_chart(df.columns[vi], rows, lead_row=lead_c))
+    if sql:
+        blocks.append(theme.sql_block(sql, open=False))
+
+    card_head = "Ranking" if (df is not None and len(df) > 1) else "Resultado"
+    body = inner + summary_html + (theme.card(card_head, *blocks, pill=f"{len(df)} resultados")
+                    if blocks else "")
+    theme.assistant(body)
+
 
 # ═══════════════════════════════════════════════════════════════════
-# SIDEBAR
+#  SIDEBAR  (nativo = funcional; o CSS cuida do visual)
 # ═══════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("## 📊 DataChat AI")
-    st.caption("Análise de dados por linguagem natural")
+    theme.html(theme.sidebar_brand())
     st.divider()
 
-    # Métricas do banco
-    with st.spinner("Carregando métricas..."):
-        total, receita, prods = get_db_stats()
-
-    st.markdown("**Base de dados**")
-    col1, col2 = st.columns(2)
-    col1.metric("Registros", f"{total:,}")
-    col2.metric("Produtos", prods)
-    st.metric("Receita total", f"R$ {receita:,.2f}")
+    total, receita, prods, n_cols = db_stats()
+    theme.html(theme.eyebrow("Base de dados"))
+    c1, c2 = st.columns(2)
+    c1.metric("Registros", f"{total:,}".replace(",", "."))
+    c2.metric("Produtos", prods)
+    theme.html(theme.metrics([
+        {"label": "Receita total", "value": f"R$ {receita:,.0f}".replace(",", ".")}
+    ]))
     st.divider()
 
-    # Perguntas exemplo por categoria
-    st.markdown("**Perguntas sugeridas**")
-
+    theme.html(theme.eyebrow("Perguntas sugeridas"))
     categorias = {
-        "📈 Vendas": [
-            "Qual produto mais vendido em 2024?",
-            "Top 5 dias com maior faturamento?",
-            "Evolução mensal da receita em 2024",
-        ],
-        "🗺️ Regiões": [
-            "Qual região gerou mais receita?",
-            "Compare vendas entre Sul e Sudeste",
-            "Ranking de regiões por quantidade vendida",
-        ],
-        "👤 Vendedores": [
-            "Top 3 vendedores por receita total",
-            "Média de vendas por vendedor",
-            "Qual vendedor vende mais eletrônicos?",
-        ],
+        "Vendas": (":material/trending_up:",
+                   ["Qual produto mais vendido em 2024?",
+                    "Top 5 dias com maior faturamento", "Evolução mensal da receita"]),
+        "Regiões": (":material/public:",
+                    ["Qual região gerou mais receita?",
+                     "Compare Sul e Sudeste", "Ranking por quantidade vendida"]),
+        "Vendedores": (":material/groups:",
+                       ["Top 3 vendedores por receita",
+                        "Média de vendas por vendedor", "Qual vendedor vende mais eletrônicos?"]),
     }
-
-    for categoria, perguntas in categorias.items():
-        with st.expander(categoria):
+    for cat, (icon, perguntas) in categorias.items():
+        with st.expander(cat, icon=icon):
             for p in perguntas:
                 if st.button(p, key=p, use_container_width=True):
                     st.session_state.pergunta_rapida = p
 
     st.divider()
-
-    # Configurações
-    st.markdown("**Configurações**")
+    theme.html(theme.eyebrow("Configurações"))
     show_sql = st.toggle("Mostrar SQL gerado", value=True)
     show_chart = st.toggle("Sugerir gráfico", value=True)
-
-    if st.button("🗑️ Limpar conversa", use_container_width=True):
+    if st.button("Limpar conversa", icon=":material/delete:", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════
-# ÁREA PRINCIPAL
+#  ÁREA PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════
-st.title("💬 Converse com seus dados")
-st.caption("Pergunte em português sobre qualquer métrica de vendas")
+_total, _receita, _prods, _n_cols = db_stats()
+theme.html(theme.topbar("vendas.db", _total, _n_cols, "llama-3.3-70b"))
 
-# Inicializa histórico
+st.title("Converse com seus dados")
+st.caption("Pergunte em português sobre qualquer métrica de vendas — "
+           "produtos, regiões, vendedores e períodos.")
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Mensagem inicial
+# estado vazio
 if not st.session_state.messages:
-    with st.chat_message("assistant"):
-        st.markdown(
-            "Olá! Sou seu analista de dados com IA. "
-            "Pode me fazer perguntas como:\n\n"
-            "- *Qual foi o produto mais vendido?*\n"
-            "- *Me mostre as vendas por região*\n"
-            "- *Quem foi o melhor vendedor em março?*"
-        )
+    theme.assistant(theme.welcome())
+    theme.html('<div class="ds-chips-label">COMECE POR AQUI</div>')
+    sugestoes = ["Top produtos de 2024", "Receita por região",
+                  "Melhor vendedor em março", "Ticket médio por categoria"]
+    cols = st.columns(len(sugestoes))
+    for col, s in zip(cols, sugestoes):
+        with col:
+            theme.html('<div class="ds-chip-btn">')
+            if st.button(s, key=f"chip_{s}", use_container_width=True):
+                st.session_state.pergunta_rapida = s
+            theme.html('</div>')
 
-# Renderiza histórico
+# histórico
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if msg.get("sql") and show_sql:
-            with st.expander("Ver SQL gerado"):
-                st.code(msg["sql"], language="sql")
-        if msg.get("has_table") and show_chart:
-            try_render_chart(msg["content"])
+    if msg["role"] == "user":
+        theme.user(msg["content"])
+    else:
+        render_answer(msg["content"], msg.get("sql") if show_sql else None, show_chart)
 
-# ── Input do usuário ────────────────────────────────────────────────
-pergunta = st.chat_input("Faça uma pergunta sobre os dados...")
-
-# Preenche se clicou em pergunta sugerida
+# ── input ───────────────────────────────────────────────────────────
+pergunta = st.chat_input("Faça uma pergunta sobre os dados…")
 if "pergunta_rapida" in st.session_state:
     pergunta = st.session_state.pop("pergunta_rapida")
 
 if pergunta:
-    # Adiciona mensagem do usuário
     st.session_state.messages.append({"role": "user", "content": pergunta})
-    with st.chat_message("user"):
-        st.markdown(pergunta)
+    theme.user(pergunta)
 
-    # Processa com o agente
-    with st.chat_message("assistant"):
-        with st.spinner("Analisando... ⏳"):
-            agent = get_agent()
-            resposta = query(agent, pergunta)
+    placeholder = st.empty()
+    with placeholder.container():
+        theme.assistant(theme.thinking())   # estado "pensando"
 
-        st.markdown(resposta)
+    resposta = query(get_agent(), pergunta)
+    sql_match = re.search(r"```sql\n(.*?)```", resposta, re.DOTALL)
+    sql = sql_match.group(1).strip() if sql_match else None
 
-        # Detecta se tem tabela para oferecer gráfico
-        has_table = "|" in resposta and "---" in resposta
+    placeholder.empty()
+    if resposta.startswith("ERRO_LIMITE"):
+        theme.assistant(theme.error_box(
+            "Limite da API atingido",
+            "O limite diário de tokens da API Groq foi atingido. "
+            "Aguarde alguns minutos para o limite renovar, ou configure outra "
+            "chave/modelo no arquivo <code>.env</code> / <code>agent.py</code>."))
+    elif resposta.lower().startswith("erro"):
+        theme.assistant(theme.error_box(
+            "Não consegui processar a pergunta",
+            "Verifique se ela se refere a colunas existentes: "
+            "<code>produto</code>, <code>categoria</code>, <code>regiao</code>, "
+            "<code>vendedor</code>, <code>quantidade</code>, <code>preco_unitario</code>, "
+            "<code>total</code>."))
+    else:
+        render_answer(resposta, sql if show_sql else None, show_chart)
 
-        # Tenta extrair o SQL dos logs internos do agente
-        sql_gerado = None
-        sql_match = re.search(r"```sql\n(.*?)```", resposta, re.DOTALL)
-        if sql_match:
-            sql_gerado = sql_match.group(1).strip()
-
-        if sql_gerado and show_sql:
-            with st.expander("Ver SQL gerado"):
-                st.code(sql_gerado, language="sql")
-
-        if has_table and show_chart:
-            try_render_chart(resposta)
-
-    # Salva no histórico com metadados
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": resposta,
-        "sql": sql_gerado,
-        "has_table": has_table,
-    })
+    st.session_state.messages.append({"role": "assistant", "content": resposta, "sql": sql})

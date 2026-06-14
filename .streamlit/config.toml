@@ -1,0 +1,14 @@
+# .streamlit/config.toml
+# ── DataChat AI — tema (paleta terrosa, escuro) ──────────────────────
+# Coloque este arquivo em  <projeto>/.streamlit/config.toml
+# As CORES abaixo são a parte robusta do tema (funcionam em qualquer
+# versão do Streamlit). As FONTES (Archivo + IBM Plex Mono) são
+# carregadas via CSS em theme.py, porque o suporte a fontes custom no
+# config.toml varia entre versões.
+
+[theme]
+base = "dark"
+primaryColor = "#B54745"            # terracota — botões, foco, acentos
+backgroundColor = "#0A1016"         # fundo principal (quase preto/navy)
+secondaryBackgroundColor = "#0C141C" # sidebar, inputs, blocos de código
+textColor = "#F0EDE5"               # creme
