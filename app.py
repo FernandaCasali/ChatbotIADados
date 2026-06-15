@@ -3,6 +3,7 @@ DataChat AI — app Streamlit com o tema novo.
 Coloque junto de theme.py, agent.py, database.py e vendas.db.
 Rode:  streamlit run app.py
 """
+import os
 import re
 import sqlite3
 import pandas as pd
@@ -10,11 +11,34 @@ import streamlit as st
 
 import theme
 from agent import create_agent, query
+from database import create_and_seed
 
 # ── página ───────────────────────────────────────────────────────────
 st.set_page_config(page_title="DataChat AI", page_icon=":material/insights:",
                    layout="wide", initial_sidebar_state="expanded")
 theme.inject()   # ← fontes + CSS (a única coisa que você precisa para o visual)
+
+
+@st.cache_resource
+def ensure_db():
+    """Garante que vendas.db exista e tenha a tabela `vendas`.
+
+    Em deploy limpo (ex.: Streamlit Cloud) o .db não é versionado — está no
+    .gitignore. Sem isto, sqlite cria um arquivo vazio e tudo quebra com
+    'no such table: vendas'. Aqui semeamos na primeira execução.
+    """
+    if os.path.exists("vendas.db"):
+        try:
+            conn = sqlite3.connect("vendas.db")
+            conn.execute("SELECT 1 FROM vendas LIMIT 1")
+            conn.close()
+            return  # banco já populado
+        except sqlite3.Error:
+            pass  # arquivo existe mas sem a tabela → re-semear
+    create_and_seed()
+
+
+ensure_db()  # roda antes de qualquer acesso ao banco (sidebar/agente)
 
 
 @st.cache_resource
