@@ -52,7 +52,27 @@ def query(agent, pergunta: str) -> str:
         return result["output"]
     except Exception as e:
         msg = str(e)
-        if "rate_limit" in msg or "429" in msg or "tokens per day" in msg.lower():
-            return ("ERRO_LIMITE: O limite diário de tokens da API Groq foi atingido. "
-                    "Aguarde alguns minutos ou troque o modelo/chave de API.")
+        low = msg.lower()
+
+        is_rate_limit = "rate_limit" in low or "rate limit" in low or "error code: 429" in low
+        # O Groq devolve 429 para limites POR DIA (TPD/RPD) e POR MINUTO (TPM/RPM).
+        # Só é "limite diário" se a mensagem realmente citar o ciclo diário.
+        is_daily = any(k in low for k in ("per day", "tpd", "rpd", "tokens per day",
+                                          "requests per day", "daily"))
+        # Pergunta pesada estoura contexto/payload — não é falta de cota.
+        is_too_big = ("context_length" in low or "context length" in low
+                      or "request too large" in low or "error code: 413" in low
+                      or "reduce the length" in low)
+
+        if is_rate_limit and is_daily:
+            return ("ERRO_LIMITE_DIARIO: O limite DIÁRIO de tokens da API Groq foi atingido. "
+                    "Ele renova à meia-noite (UTC). Troque a chave/modelo no .env para "
+                    "continuar agora.")
+        if is_rate_limit:
+            return ("ERRO_LIMITE_MINUTO: Muitas requisições em pouco tempo (limite por "
+                    "minuto da API Groq). Aguarde alguns segundos e tente de novo — a "
+                    "cota diária NÃO foi atingida.")
+        if is_too_big:
+            return ("ERRO_TAMANHO: A pergunta gerou um contexto grande demais para o "
+                    "modelo. Tente reformular de forma mais específica ou objetiva.")
         return f"Erro ao processar a pergunta: {msg}"

@@ -209,12 +209,22 @@ if pergunta:
     sql = sql_match.group(1).strip() if sql_match else None
 
     placeholder.empty()
-    if resposta.startswith("ERRO_LIMITE"):
+    if resposta.startswith("ERRO_LIMITE_DIARIO"):
         theme.assistant(theme.error_box(
-            "Limite da API atingido",
-            "O limite diário de tokens da API Groq foi atingido. "
-            "Aguarde alguns minutos para o limite renovar, ou configure outra "
+            "Limite diário da API atingido",
+            "O limite <b>diário</b> de tokens da API Groq foi atingido. "
+            "Ele renova à meia-noite (UTC). Para continuar agora, configure outra "
             "chave/modelo no arquivo <code>.env</code> / <code>agent.py</code>."))
+    elif resposta.startswith("ERRO_LIMITE_MINUTO"):
+        theme.assistant(theme.error_box(
+            "Muitas requisições por minuto",
+            "Você atingiu o limite <b>por minuto</b> da API Groq (não o diário). "
+            "Aguarde alguns segundos e tente novamente."))
+    elif resposta.startswith("ERRO_TAMANHO"):
+        theme.assistant(theme.error_box(
+            "Pergunta muito complexa",
+            "A pergunta gerou um contexto grande demais para o modelo. "
+            "Tente reformulá-la de forma mais específica ou objetiva."))
     elif resposta.lower().startswith("erro"):
         theme.assistant(theme.error_box(
             "Não consegui processar a pergunta",
