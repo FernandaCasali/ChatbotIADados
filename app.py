@@ -65,10 +65,10 @@ def build_summary(df, num_idx, str_idx, lead):
         if len(nums) > 1:
             mean, total, lv = nums.mean(), nums.sum(), nums.iloc[lead]
             if mean:
-                pct = (lv - mean) / mean * 100
-                sub = f"{pct:+.1f}% vs. média da equipe".replace(".", ",")
+                pct = f"{(lv - mean) / mean * 100:+.1f}".replace(".", ",")
+                sub = f"{pct}% vs. média da equipe"
             elif total:
-                sub = f"{lv / total * 100:.0f}% do total".replace(".", ",")
+                sub = f"{lv / total * 100:.0f}% do total"
         items.append({"label": str(df.columns[vi]), "value": disp, "sub": sub})
     return items
 
@@ -106,8 +106,10 @@ def render_answer(resposta: str, sql: str | None = None, show_chart: bool = True
     if sql:
         blocks.append(theme.sql_block(sql, open=False))
 
-    card_head = "Ranking" if (df is not None and len(df) > 1) else "Resultado"
-    body = inner + summary_html + (theme.card(card_head, *blocks, pill=f"{len(df)} resultados")
+    n = len(df) if df is not None else 0
+    card_head = "Ranking" if n > 1 else "Resultado"
+    pill = f"{n} resultados" if df is not None else None
+    body = inner + summary_html + (theme.card(card_head, *blocks, pill=pill)
                     if blocks else "")
     theme.assistant(body)
 
@@ -207,12 +209,22 @@ if pergunta:
     sql = sql_match.group(1).strip() if sql_match else None
 
     placeholder.empty()
-    if resposta.startswith("ERRO_LIMITE"):
+    if resposta.startswith("ERRO_LIMITE_DIARIO"):
         theme.assistant(theme.error_box(
-            "Limite da API atingido",
-            "O limite diário de tokens da API Groq foi atingido. "
-            "Aguarde alguns minutos para o limite renovar, ou configure outra "
+            "Limite diário da API atingido",
+            "O limite <b>diário</b> de tokens da API Groq foi atingido. "
+            "Ele renova à meia-noite (UTC). Para continuar agora, configure outra "
             "chave/modelo no arquivo <code>.env</code> / <code>agent.py</code>."))
+    elif resposta.startswith("ERRO_LIMITE_MINUTO"):
+        theme.assistant(theme.error_box(
+            "Muitas requisições por minuto",
+            "Você atingiu o limite <b>por minuto</b> da API Groq (não o diário). "
+            "Aguarde alguns segundos e tente novamente."))
+    elif resposta.startswith("ERRO_TAMANHO"):
+        theme.assistant(theme.error_box(
+            "Pergunta muito complexa",
+            "A pergunta gerou um contexto grande demais para o modelo. "
+            "Tente reformulá-la de forma mais específica ou objetiva."))
     elif resposta.lower().startswith("erro"):
         theme.assistant(theme.error_box(
             "Não consegui processar a pergunta",
